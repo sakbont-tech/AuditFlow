@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Compiled output
+dist/
+
+# Environment variables and secrets
+.env
+.env.local
+.env.test
+
+# Test coverage
+coverage/
+
+# Logs
+*.log
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Operating system files
+.DS_Store
+Thumbs.db
