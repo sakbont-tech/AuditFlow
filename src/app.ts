@@ -1,8 +1,4 @@
-import express, {
-  type Express,
-  type Request,
-  type Response,
-} from "express";
+import express, { type Express, type Request, type Response } from "express";
 
 import errorHandler from "./middleware/error-handler.js";
 import notFoundHandler from "./middleware/not-found.js";
