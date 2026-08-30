@@ -1,6 +1,6 @@
-import Router, {type Request, type Response } from "express";
+import { Router, type Request, type Response } from "express";
 
-const healthRouter = Router();
+export const healthRouter = Router();
 
 healthRouter.get("/", (req: Request, res: Response) => {
   console.log(
