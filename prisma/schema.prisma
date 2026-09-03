@@ -1,0 +1,79 @@
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum AccountType {
+  CHEQUING
+  SAVINGS
+}
+
+enum Currency {
+  CAD
+  USD
+}
+
+enum AccountStatus {
+  ACTIVE
+  FROZEN
+  CLOSED
+}
+
+enum TransferStatus {
+  COMPLETED
+  PENDING
+  FAILED
+  CANCELLED
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  createdAt    DateTime  @default(now())
+  accounts     Account[]
+}
+
+model Account {
+  id                String        @id @default(uuid())
+  accountNumber     String        @unique
+  owner             User          @relation(fields: [ownerId], references: [id])
+  ownerId           String
+  accountType       AccountType
+  balanceCents      Int           @default(0)
+  currency          Currency
+  status            AccountStatus @default(ACTIVE)
+  createdAt         DateTime      @default(now())
+  sentTransfers     Transfer[]    @relation("SentTransfers")
+  receivedTransfers Transfer[]    @relation("ReceivedTransfers")
+
+  @@index([ownerId])
+}
+
+model Transfer {
+  id                   String         @id @default(uuid())
+  sourceAccount        Account        @relation("SentTransfers", fields: [sourceAccountId], references: [id])
+  sourceAccountId      String
+  amountCents          Int
+  destinationAccount   Account        @relation("ReceivedTransfers", fields: [destinationAccountId], references: [id])
+  destinationAccountId String
+  currency             Currency
+  status               TransferStatus @default(PENDING)
+  idempotencyKey       String         @unique
+  createdAt            DateTime       @default(now())
+  completedAt          DateTime?
+
+  @@index([sourceAccountId])
+  @@index([destinationAccountId])
+}
