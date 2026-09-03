@@ -1,0 +1,79 @@
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum AccountType {
+  CHEQUING
+  SAVINGS
+}
+
+enum Currency {
+  CAD
+  USD
+}
+
+enum AccountStatus {
+  ACTIVE
+  FROZEN
+  CLOSED
+}
+
+enum TransferStatus {
+  COMPLETED
+  PENDING
+  FAILED
+  CANCELLED
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  accounts     Account[]
+}
+
+model Account {
+  id                String        @id @default(uuid()) @db.Uuid
+  accountNumber     String        @unique
+  owner             User          @relation(fields: [ownerId], references: [id])
+  ownerId           String        @db.Uuid
+  accountType       AccountType
+  balanceCents      Int           @default(0)
+  currency          Currency
+  status            AccountStatus @default(ACTIVE)
+  createdAt         DateTime      @default(now()) @db.Timestamptz(3)
+  sentTransfers     Transfer[]    @relation("SentTransfers")
+  receivedTransfers Transfer[]    @relation("ReceivedTransfers")
+
+  @@index([ownerId])
+}
+
+model Transfer {
+  id                   String         @id @default(uuid()) @db.Uuid
+  sourceAccount        Account        @relation("SentTransfers", fields: [sourceAccountId], references: [id])
+  sourceAccountId      String         @db.Uuid
+  amountCents          Int
+  destinationAccount   Account        @relation("ReceivedTransfers", fields: [destinationAccountId], references: [id])
+  destinationAccountId String         @db.Uuid
+  currency             Currency
+  status               TransferStatus @default(PENDING)
+  idempotencyKey       String         @unique
+  createdAt            DateTime       @default(now()) @db.Timestamptz(3)
+  completedAt          DateTime?      @db.Timestamptz(3)
+
+  @@index([sourceAccountId])
+  @@index([destinationAccountId])
+}
