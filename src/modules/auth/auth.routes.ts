@@ -3,7 +3,6 @@ import { db } from "../../db/prismaDB.js";
 import bcrypt from "bcrypt";
 import { z } from "zod";
 import { Prisma } from "../../generated/prisma/client.js";
-import { error } from "node:console";
 
 const authRouter = Router();
 
@@ -15,7 +14,12 @@ async function hashPassword(password: string): Promise<string> {
 
 const registerSchema = z.object({
   email: z.string().trim().toLowerCase().pipe(z.email()),
-  password: z.string().min(8),
+  password: z
+    .string()
+    .min(8)
+    .refine((password) => Buffer.byteLength(password, "utf8") <= 72, {
+      message: "Password must be at most 72 UTF-8 bytes",
+    }),
   firstName: z.string().trim().min(1),
   lastName: z.string().trim().min(1),
 });
@@ -23,10 +27,12 @@ const registerSchema = z.object({
 authRouter.post("/register", async (req: Request, res: Response) => {
   const result = registerSchema.safeParse(req.body);
   if (!result.success) {
-    result.error;
-    return res
-      .status(400)
-      .json({ err: "registration schema validation failed" });
+    return res.status(400).json({
+      error: {
+        code: "INVALID_REGISTRATION_DATA",
+        message: "Registration schema validation failed",
+      },
+    });
   }
 
   try {
@@ -52,7 +58,10 @@ authRouter.post("/register", async (req: Request, res: Response) => {
       (error as { code?: string }).code === "P2002"
     ) {
       return res.status(409).json({
-        msg: "The email entered has already been used to register an account",
+        error: {
+          code: "EMAIL_ALREADY_REGISTERED",
+          message: "The email entered has already been used to register an account",
+        },
       });
     }
 

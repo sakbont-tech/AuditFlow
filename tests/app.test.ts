@@ -1,4 +1,5 @@
 import request from "supertest";
+import bcrypt from "bcrypt";
 import { afterAll, beforeEach, describe, it, expect } from "vitest";
 import app from "../src/app.js";
 import { db } from "../src/db/prismaDB.js";
@@ -61,7 +62,9 @@ describe("POST /api/auth/register", () => {
     });
 
     expect(savedUser).not.toBeNull();
-    expect(savedUser?.passwordHash).not.toBe(testBody.password);
+    expect(
+      await bcrypt.compare(testBody.password, savedUser!.passwordHash),
+    ).toBe(true);
   });
 
   it("returns status 400 for a missing user schema field", async () => {
@@ -76,7 +79,10 @@ describe("POST /api/auth/register", () => {
       .send(testBody);
     expect(response.status).toBe(400);
     expect(response.body).toEqual({
-      err: "registration schema validation failed",
+      error: {
+        code: "INVALID_REGISTRATION_DATA",
+        message: "Registration schema validation failed",
+      },
     });
   });
 
@@ -93,7 +99,10 @@ describe("POST /api/auth/register", () => {
       .send(testBody);
     expect(response.status).toBe(400);
     expect(response.body).toEqual({
-      err: "registration schema validation failed",
+      error: {
+        code: "INVALID_REGISTRATION_DATA",
+        message: "Registration schema validation failed",
+      },
     });
   });
 
@@ -116,6 +125,12 @@ describe("POST /api/auth/register", () => {
       .send(testBody);
 
     expect(secondResponse.status).toBe(409);
+    expect(secondResponse.body).toEqual({
+      error: {
+        code: "EMAIL_ALREADY_REGISTERED",
+        message: "The email entered has already been used to register an account",
+      },
+    });
     const userCount = await db.user.count({
       where: { email: registrationEmail },
     });
