@@ -29,7 +29,6 @@ authRouter.post("/register", async (req: Request, res: Response) => {
       .json({ err: "registration schema validation failed" });
   }
 
-
   try {
     const user = await db.user.create({
       data: {

@@ -27,7 +27,7 @@ describe("GET from unknown URL", () => {
   });
 });
 
-describe("POST /api/auth/registration", () => {
+describe("POST /api/auth/register", () => {
   const registrationEmail = "register-test@example.com";
 
   beforeEach(async () => {
@@ -55,5 +55,71 @@ describe("POST /api/auth/registration", () => {
       lastName: testBody.lastName,
       createdAt: expect.any(String),
     });
+
+    const savedUser = await db.user.findUnique({
+      where: { email: registrationEmail },
+    });
+
+    expect(savedUser).not.toBeNull();
+    expect(savedUser?.passwordHash).not.toBe(testBody.password);
+  });
+
+  it("returns status 400 for a missing user schema field", async () => {
+    const testBody = {
+      email: registrationEmail,
+      password: "123456789",
+      lastName: "testlast",
+    };
+
+    const response = await request(app)
+      .post("/api/auth/register")
+      .send(testBody);
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      err: "registration schema validation failed",
+    });
+  });
+
+  it("returns status 400 for an invalid user schema field", async () => {
+    const testBody = {
+      email: registrationEmail,
+      firstName: "test",
+      password: "123",
+      lastName: "testlast",
+    };
+
+    const response = await request(app)
+      .post("/api/auth/register")
+      .send(testBody);
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      err: "registration schema validation failed",
+    });
+  });
+
+  it("returns status 409 when the email is already registered", async () => {
+    const testBody = {
+      email: registrationEmail,
+      password: "123456789",
+      firstName: "test",
+      lastName: "testlast",
+    };
+
+    const firstResponse = await request(app)
+      .post("/api/auth/register")
+      .send(testBody);
+
+    expect(firstResponse.status).toBe(201);
+
+    const secondResponse = await request(app)
+      .post("/api/auth/register")
+      .send(testBody);
+
+    expect(secondResponse.status).toBe(409);
+    const userCount = await db.user.count({
+      where: { email: registrationEmail },
+    });
+
+    expect(userCount).toBe(1);
   });
 });
