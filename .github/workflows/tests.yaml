@@ -13,6 +13,21 @@ jobs:
   backend-tests:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: auditflow_test
+          POSTGRES_USER: auditflow_test
+          POSTGRES_PASSWORD: password123
+        ports:
+          - "5433:5432"
+        options: >-
+          --health-cmd "pg_isready -U auditflow_test -d auditflow_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -30,7 +45,7 @@ jobs:
         run: npx prisma generate
         env:
           DATABASE_URL: postgresql://ci_user:ci_password@localhost:5432/auditflow
-      
+
       - name: Type-check
         run: npm run typecheck
 
