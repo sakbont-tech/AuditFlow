@@ -31,11 +31,6 @@ jobs:
         env:
           DATABASE_URL: postgresql://ci_user:ci_password@localhost:5432/auditflow
       
-      - name: generate Prisma test client
-        run: npx prisma generate
-        env:
-          DATABASE_URL: postgresql://auditflow_test:password123@localhost:5432/auditflow_test
-
       - name: Type-check
         run: npm run typecheck
 
