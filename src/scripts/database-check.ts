@@ -1,8 +1,8 @@
-import { prisma } from "../db/prisma.js";
+import { db } from "../db/prismaDB.js";
 
 try {
-  const count = await prisma.user.count();
+  const count = await db.user.count();
   console.log(count);
 } finally {
-  await prisma.$disconnect();
+  await db.$disconnect();
 }
