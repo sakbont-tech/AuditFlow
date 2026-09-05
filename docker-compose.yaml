@@ -9,6 +9,18 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+  
+  postgres-test:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: auditflow_test
+      POSTGRES_USER: auditflow_test
+      POSTGRES_PASSWORD: password123
+    ports:
+      - "5433:5432"
+    volumes:
+      - auditflow_test_data:/var/lib/postgresql/data
 
 volumes:
   postgres_data:
+  auditflow_test_data:
