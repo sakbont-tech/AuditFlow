@@ -27,7 +27,7 @@ model Account {
   accountNumber     String        @unique
   owner             User          @relation(fields: [ownerId], references: [id])
   ownerId           String        @unique @db.Uuid
-  balanceCents      Int
+  balanceCents      Int           @default(50000)
   createdAt         DateTime      @default(now()) @db.Timestamptz(3)
   sentTransfers     Transfer[]    @relation("SentTransfers")
   receivedTransfers Transfer[]    @relation("ReceivedTransfers")
@@ -56,7 +56,7 @@ model LedgerEntry {
   accountId   String    @db.Uuid
   account     Account   @relation(fields: [accountId], references: [id])
   transfer    Transfer? @relation(fields: [transferId], references: [id])
-  transferId  String?
+  transferId  String?   @db.Uuid
   amountCents Int
   createdAt   DateTime  @default(now()) @db.Timestamptz(3)
 

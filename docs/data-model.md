@@ -1,236 +1,265 @@
-# AuditFlow Data Model
+# AuditFlow Database Design
 
-> Status: Draft — this design will evolve during implementation.
+> Status: Draft — updated to reflect the current Prisma schema and registration implementation.
 
-# Version One
+## Database technology
 
-Version one contains three core tables:
+- Database: PostgreSQL
+- ORM: Prisma
+- Primary identifiers: UUID
+- Money representation: integer cents
+- Timestamp representation: timezone-aware UTC timestamps
+- Naming convention: Prisma model names use singular PascalCase names
 
-* `Users`
-* `Accounts`
-* `Transfers`
+## Core design decisions
 
-The ledger and suspicious-activity alert systems are deferred until the core transfer workflow is complete.
+- Each user can currently own at most one account.
+- Registration creates the user, account, and initial ledger entry atomically.
+- Every account begins with a balance of `50000` cents.
+- Every account number is a unique 12-digit string.
+- Account balances are stored directly on the account.
+- Ledger entries provide the history explaining balance changes.
+- Transfers use an idempotency key to prevent duplicate processing.
+- Version one uses one implicit currency and does not perform currency conversion.
 
----
+## Entity relationships
 
-## Table: Users
-
-### Purpose
-
-Store user identity and authentication information.
-
-### Fields
-
-* `id`: UUID, required
-* `email`: string, required, unique
-* `passwordHash`: string, required
-* `firstName`: string, required
-* `lastName`: string, required
-* `createdAt`: timestamp, required
-
-### Primary key
-
-* `id`
-
-### Important constraints
-
-* Every user must have a unique email address.
-* Emails should be normalized before storage.
-* Passwords must be hashed before storage.
-* Plain-text passwords must never be stored.
-* Password hashes must never be returned in API responses.
-
----
-
-## Table: Accounts
-
-### Purpose
-
-Store financial accounts and associate each account with its owner.
-
-### Fields
-
-* `id`: UUID, required
-* `accountNumber`: string, required, unique
-* `ownerId`: UUID, required
-* `accountType`: enum, required
-* `balanceCents`: integer, required, default `0`
-* `currency`: enum, required
-* `status`: enum, required, default `ACTIVE`
-* `createdAt`: timestamp, required
-
-### Primary key
-
-* `id`
-
-### Foreign keys
-
-* `ownerId` references `Users.id`
-
-### Account type enum
-
-```text
-CHEQUING
-SAVINGS
+```mermaid
+erDiagram
+    USER ||--o| ACCOUNT : owns
+    ACCOUNT ||--o{ TRANSFER : sends
+    ACCOUNT ||--o{ TRANSFER : receives
+    ACCOUNT ||--o{ LEDGER_ENTRY : records
+    TRANSFER o|--o{ LEDGER_ENTRY : groups
 ```
 
-### Currency enum
+---
 
-```text
-CAD
-USD
-```
+# User
 
-### Account status enum
+Represents a registered AuditFlow user.
 
-```text
-ACTIVE
-FROZEN
-CLOSED
-```
+| Column         | Database type  | Constraints                        | Description                |
+| -------------- | -------------- | ---------------------------------- | -------------------------- |
+| `id`           | UUID           | Primary key, generated             | Unique user identifier     |
+| `email`        | Text           | Required, unique                   | Normalized lowercase email |
+| `passwordHash` | Text           | Required                           | bcrypt password hash       |
+| `firstName`    | Text           | Required                           | User’s first name          |
+| `lastName`     | Text           | Required                           | User’s last name           |
+| `createdAt`    | TIMESTAMPTZ(3) | Required, defaults to current time | Creation timestamp         |
 
-### Important constraints
+## Relationships
 
-* Every account belongs to exactly one user.
-* One user can own multiple accounts.
-* Every account number must be unique.
-* `balanceCents` must be greater than or equal to zero.
-* Money is stored in cents using integers.
-* An account’s currency cannot change after financial activity begins.
-* Closed accounts cannot send or receive transfers.
-* Frozen accounts cannot send or receive transfers.
-* Accounts with financial history cannot be deleted.
+- A user can have zero or one account at the database level.
+- Normal application registration creates exactly one account.
+- The one-account limit is enforced by the unique constraint on `Account.ownerId`.
+
+## Security rules
+
+- Plain-text passwords are never stored.
+- Password hashes are never returned by the API.
+- Email uniqueness is enforced by the database to prevent race conditions.
 
 ---
 
-## Table: Transfers
+# Account
 
-### Purpose
+Represents the account owned by a user.
 
-Store requests to move funds between two AuditFlow accounts.
+| Column          | Database type  | Constraints                        | Description                              |
+| --------------- | -------------- | ---------------------------------- | ---------------------------------------- |
+| `id`            | UUID           | Primary key, generated             | Unique account identifier                |
+| `accountNumber` | Text           | Required, unique                   | Server-generated 12-digit account number |
+| `ownerId`       | UUID           | Required, unique, foreign key      | References `User.id`                     |
+| `balanceCents`  | Integer        | Required, defaults to `50000`      | Current account balance in cents         |
+| `createdAt`     | TIMESTAMPTZ(3) | Required, defaults to current time | Creation timestamp                       |
 
-### Fields
+## Relationships
 
-* `id`: UUID, required
-* `sourceAccountId`: UUID, required
-* `destinationAccountId`: UUID, required
-* `amountCents`: integer, required
-* `currency`: enum, required
-* `status`: enum, required, default `PENDING`
-* `idempotencyKey`: string, required, unique
-* `createdAt`: timestamp, required
-* `completedAt`: timestamp, optional
+- Each account belongs to exactly one user.
+- Each user can own at most one account.
+- An account can send many transfers.
+- An account can receive many transfers.
+- An account can have many ledger entries.
 
-### Primary key
+## Account-number generation
 
-* `id`
+Account numbers:
 
-### Foreign keys
+- Contain exactly 12 digits.
+- Are generated by the server.
+- Are protected by a database unique constraint.
+- Are regenerated when an account-number collision occurs.
+- Are retried up to three times during registration.
 
-* `sourceAccountId` references `Accounts.id`
-* `destinationAccountId` references `Accounts.id`
+## Balance rules
 
-### Transfer status enum
-
-```text
-PENDING
-COMPLETED
-FAILED
-CANCELLED
-```
-
-### Important constraints
-
-* `amountCents` must be greater than zero.
-* Source and destination accounts must be different.
-* Source and destination accounts must exist.
-* Source and destination accounts must use the transfer currency.
-* The idempotency key must be unique.
-* A completed transfer cannot be modified or deleted.
-* `completedAt` should only contain a value when the transfer is completed.
-
-### Business rules
-
-Before completing a transfer, the service must confirm:
-
-* The source account belongs to the authenticated user.
-* Both accounts are active.
-* Source and destination accounts use the same currency.
-* The source account has sufficient funds.
-* The idempotency key hasn’t already created another transfer.
-
-The API accepts a destination account number. The service uses that number to find the account, then stores its internal UUID in `destinationAccountId`.
-
-### Atomic transfer rule
-
-The following operations must happen inside one database transaction:
-
-1. Confirm that the transfer rules are satisfied.
-2. Subtract `amountCents` from the source account.
-3. Add `amountCents` to the destination account.
-4. Mark the transfer as `COMPLETED`.
-5. Set its `completedAt` timestamp.
-
-If any operation fails, the database must roll back all operations. The system must never update only one account.
+- New accounts begin with `50000` cents.
+- `balanceCents` represents the current materialized balance.
+- Balance changes must also create matching ledger entries.
+- Transfer operations must not allow the source balance to become negative.
+- Balance updates and ledger entries must be written in one transaction.
 
 ---
 
-# Relationships
+# Transfer
 
-```text
-Users.id
-    → Accounts.ownerId
+Represents money moved between two AuditFlow accounts.
 
-Accounts.id
-    → Transfers.sourceAccountId
+| Column                 | Database type  | Constraints                        | Description                            |
+| ---------------------- | -------------- | ---------------------------------- | -------------------------------------- |
+| `id`                   | UUID           | Primary key, generated             | Unique transfer identifier             |
+| `sourceAccountId`      | UUID           | Required, foreign key, indexed     | References the sending `Account.id`    |
+| `destinationAccountId` | UUID           | Required, foreign key, indexed     | References the receiving `Account.id`  |
+| `amountCents`          | Integer        | Required                           | Amount transferred in cents            |
+| `idempotencyKey`       | Text           | Required, unique                   | Prevents duplicate transfer processing |
+| `createdAt`            | TIMESTAMPTZ(3) | Required, defaults to current time | Transfer creation timestamp            |
 
-Accounts.id
-    → Transfers.destinationAccountId
-```
+## Relationships
 
-In plain language:
+- Every transfer has one source account.
+- Every transfer has one destination account.
+- A transfer can be associated with multiple ledger entries.
 
-* One user can own many accounts.
-* Every account belongs to one user.
-* One account can be the source of many transfers.
-* One account can be the destination of many transfers.
-* Every transfer has one source account and one destination account.
+## Application-level rules
 
----
+The application must enforce that:
 
-# Later Phase
-
-## LedgerEntries
-
-Ledger entries will provide an immutable record of every account balance change.
-
-A completed transfer will eventually create:
-
-* One `DEBIT` ledger entry for the source account
-* One `CREDIT` ledger entry for the destination account
-
-The ledger is deferred until the version-one account and transfer workflows are working.
-
-## Alerts
-
-Alerts will eventually identify suspicious transfer activity for administrative review.
-
-The alert system and its administrative endpoints are deferred until after the version-one transfer workflow is complete.
+- `amountCents` is a positive integer.
+- The source and destination accounts are different.
+- The source account belongs to the authenticated user.
+- The source account has sufficient funds.
+- Repeating the same idempotency key does not move money twice.
+- Reusing an idempotency key with different request data is rejected.
 
 ---
 
-# Deliberately Excluded from Version One
+# LedgerEntry
 
-Version one does not include:
+Represents one balance change applied to an account.
 
-* Deposits
-* Withdrawals
-* Account deletion
-* Transfer modification or deletion
-* Password resets
-* Refresh tokens
-* Currency conversion
-* Transfers to external banks
-* Ledger-entry endpoints
-* Administrative alert endpoints
+| Column        | Database type  | Constraints                        | Description                     |
+| ------------- | -------------- | ---------------------------------- | ------------------------------- |
+| `id`          | UUID           | Primary key, generated             | Unique ledger-entry identifier  |
+| `accountId`   | UUID           | Required, foreign key, indexed     | References `Account.id`         |
+| `transferId`  | UUID           | Nullable, foreign key              | References `Transfer.id`        |
+| `amountCents` | Integer        | Required                           | Signed balance change in cents  |
+| `createdAt`   | TIMESTAMPTZ(3) | Required, defaults to current time | Ledger-entry creation timestamp |
+
+## Ledger amount convention
+
+- Positive values increase an account’s balance.
+- Negative values decrease an account’s balance.
+
+Examples:
+
+| Operation                 | Ledger amount |
+| ------------------------- | ------------: |
+| Initial account balance   |       `50000` |
+| Receive a transfer of $25 |        `2500` |
+| Send a transfer of $25    |       `-2500` |
+
+## Initial ledger entry
+
+Registration creates one initial ledger entry:
+
+- `accountId` references the newly created account.
+- `transferId` is `null`.
+- `amountCents` is `50000`.
+
+A null `transferId` indicates that the entry was not created by a transfer.
+
+## Transfer ledger entries
+
+A completed internal transfer creates two ledger entries:
+
+1. A negative entry for the source account.
+2. A positive entry for the destination account.
+
+Both entries reference the same transfer.
+
+---
+
+# Transaction boundaries
+
+## Registration transaction
+
+The following operations occur in one transaction:
+
+1. Create the user.
+2. Create the account.
+3. Create the initial ledger entry.
+
+If any operation fails, all three operations are rolled back.
+
+## Transfer transaction
+
+The following operations must occur in one transaction:
+
+1. Validate and create the transfer.
+2. Decrease the source account balance.
+3. Increase the destination account balance.
+4. Create the source ledger entry.
+5. Create the destination ledger entry.
+
+If any operation fails, the complete transfer is rolled back.
+
+---
+
+# Constraints and indexes
+
+## Unique constraints
+
+- `User.email`
+- `Account.accountNumber`
+- `Account.ownerId`
+- `Transfer.idempotencyKey`
+
+## Foreign keys
+
+- `Account.ownerId` → `User.id`
+- `Transfer.sourceAccountId` → `Account.id`
+- `Transfer.destinationAccountId` → `Account.id`
+- `LedgerEntry.accountId` → `Account.id`
+- `LedgerEntry.transferId` → `Transfer.id`
+
+## Query indexes
+
+- `Transfer.sourceAccountId`
+- `Transfer.destinationAccountId`
+- `LedgerEntry.accountId`
+
+The unique constraint on `Account.ownerId` already creates an index that supports owner-based account lookups.
+
+---
+
+# Consistency invariants
+
+The application must preserve these conditions:
+
+- Each user owns at most one account.
+- Account numbers are unique.
+- Email addresses are unique.
+- Transfer idempotency keys are unique.
+- Transfer amounts are positive.
+- Source and destination accounts are different.
+- Account balances do not become negative.
+- Every balance change has a corresponding ledger entry.
+- The sum of an account’s ledger entries equals its current balance.
+- Transfer balance changes and ledger entries are committed atomically.
+
+---
+
+# Future database additions
+
+The following fields and models may be added later:
+
+- Account type
+- Account currency
+- Account status
+- Transfer status
+- Transfer completion timestamp
+- Refresh tokens
+- Password-reset tokens
+- Administrative alerts
+- External bank-transfer information
