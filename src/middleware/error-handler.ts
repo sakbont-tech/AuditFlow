@@ -1,12 +1,17 @@
 import { type Request, type Response, type NextFunction } from "express";
 
 const errorHandler = (
-  _err: Error,
-  _req: Request,
+  err: unknown,
+  req: Request,
   res: Response,
-  _next: NextFunction,
+  next: NextFunction,
 ) => {
-  res.status(500).json({ err: "Internal Server Error" });
+  res.status(500).json({
+    error: {
+      code: "INTERNAL_SERVER_ERROR",
+      message: "An unexpected error occurred",
+    },
+  });
 };
 
 export default errorHandler;

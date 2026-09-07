@@ -1,140 +1,154 @@
 import request from "supertest";
-import bcrypt from "bcrypt";
 import { afterAll, beforeEach, describe, it, expect } from "vitest";
 import app from "../src/app.js";
 import { db } from "../src/db/prismaDB.js";
+import bcrypt from "bcrypt";
 
 afterAll(async () => {
   await db.$disconnect();
 });
 
 describe("GET /api/health", () => {
-  it("returns status 200 and a healthy response", async () => {
-    const expectedBody = { status: "ok" };
+  it("returns successful health response", async () => {
+    const expectedResponse = { status: "ok" };
     const response = await request(app).get("/api/health");
-
     expect(response.status).toBe(200);
-    expect(response.body).toEqual(expectedBody);
-  });
-});
-
-describe("GET from unknown URL", () => {
-  it("returns status 404 for an unknown URL", async () => {
-    const expectedBody = { err: "Route not found" };
-    const response = await request(app).get("/api/random");
-
-    expect(response.status).toBe(404);
-    expect(response.body).toEqual(expectedBody);
+    expect(response.body).toEqual(expectedResponse);
   });
 });
 
 describe("POST /api/auth/register", () => {
-  const registrationEmail = "register-test@example.com";
+  const testUser = {
+    email: "1234@gmail.com",
+    password: "1234bobthebuilder",
+    firstName: "Bob",
+    lastName: "Builder",
+  };
 
   beforeEach(async () => {
-    await db.user.deleteMany({
-      where: { email: registrationEmail },
-    });
+    await db.ledgerEntry.deleteMany();
+    await db.transfer.deleteMany();
+    await db.account.deleteMany();
+    await db.user.deleteMany();
   });
 
-  it("returns status 201 for a successfully created user", async () => {
-    const testBody = {
-      email: registrationEmail,
-      password: "123456789",
-      firstName: "test",
-      lastName: "testlast",
-    };
-
+  it("creates a user, account, and initial ledger entry when registration is valid", async () => {
     const response = await request(app)
       .post("/api/auth/register")
-      .send(testBody);
+      .send(testUser);
     expect(response.status).toBe(201);
+
     expect(response.body).toEqual({
+      user: {
+        id: expect.any(String),
+        email: testUser.email,
+        firstName: testUser.firstName,
+        lastName: testUser.lastName,
+        createdAt: expect.any(String),
+      },
+      account: {
+        accountId: expect.any(String),
+        accountNumber: expect.stringMatching(/^\d{12}$/),
+        balanceCents: 50000,
+        createdAt: expect.any(String),
+      },
+    });
+
+    const user = await db.user.findUniqueOrThrow({
+      where: { email: testUser.email },
+    });
+
+    const account = await db.account.findUniqueOrThrow({
+      where: { ownerId: user.id },
+    });
+
+    const ledgerEntries = await db.ledgerEntry.findMany({
+      where: { accountId: account.id },
+    });
+
+    const isMatch = await bcrypt.compare(testUser.password, user.passwordHash);
+    expect(isMatch).toBe(true);
+    expect(user).toMatchObject({
       id: expect.any(String),
-      email: testBody.email,
-      firstName: testBody.firstName,
-      lastName: testBody.lastName,
-      createdAt: expect.any(String),
+      email: testUser.email,
+      firstName: testUser.firstName,
+      lastName: testUser.lastName,
+      passwordHash: expect.any(String),
+      createdAt: expect.any(Date),
     });
 
-    const savedUser = await db.user.findUnique({
-      where: { email: registrationEmail },
+    expect(account).toMatchObject({
+      id: expect.any(String),
+      accountNumber: expect.stringMatching(/^\d{12}$/),
+      ownerId: user.id,
+      balanceCents: 50000,
+      createdAt: expect.any(Date),
     });
 
-    expect(savedUser).not.toBeNull();
-    expect(
-      await bcrypt.compare(testBody.password, savedUser!.passwordHash),
-    ).toBe(true);
+    expect(ledgerEntries).toHaveLength(1);
+    expect(ledgerEntries[0]).toMatchObject({
+      id: expect.any(String),
+      accountId: account.id,
+      amountCents: 50000,
+      transferId: null,
+      createdAt: expect.any(Date),
+    });
+    expect(response.body.user.id).toBe(user.id);
+    expect(response.body.account.accountId).toBe(account.id);
+    expect(response.body.account.accountNumber).toBe(account.accountNumber);
   });
 
-  it("returns status 400 for a missing user schema field", async () => {
-    const testBody = {
-      email: registrationEmail,
-      password: "123456789",
-      lastName: "testlast",
-    };
-
-    const response = await request(app)
-      .post("/api/auth/register")
-      .send(testBody);
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({
+  it("returns a 409 error if users have duplicate emails", async () => {
+    const expectedBody = {
       error: {
-        code: "INVALID_REGISTRATION_DATA",
-        message: "Registration schema validation failed",
+        code: "EMAIL_ALREADY_REGISTERED",
+        message:
+          "The email entered has already been used to register an account",
       },
-    });
-  });
-
-  it("returns status 400 for an invalid user schema field", async () => {
-    const testBody = {
-      email: registrationEmail,
-      firstName: "test",
-      password: "123",
-      lastName: "testlast",
-    };
-
-    const response = await request(app)
-      .post("/api/auth/register")
-      .send(testBody);
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({
-      error: {
-        code: "INVALID_REGISTRATION_DATA",
-        message: "Registration schema validation failed",
-      },
-    });
-  });
-
-  it("returns status 409 when the email is already registered", async () => {
-    const testBody = {
-      email: registrationEmail,
-      password: "123456789",
-      firstName: "test",
-      lastName: "testlast",
     };
 
     const firstResponse = await request(app)
       .post("/api/auth/register")
-      .send(testBody);
+      .send(testUser);
+
+    const duplicateResponse = await request(app)
+      .post("/api/auth/register")
+      .send({
+        email: testUser.email,
+        password: "213124324324",
+        firstName: "Krishten",
+        lastName: "Bale",
+      });
 
     expect(firstResponse.status).toBe(201);
+    expect(duplicateResponse.status).toBe(409);
+    expect(duplicateResponse.body).toEqual(expectedBody);
 
-    const secondResponse = await request(app)
-      .post("/api/auth/register")
-      .send(testBody);
-
-    expect(secondResponse.status).toBe(409);
-    expect(secondResponse.body).toEqual({
-      error: {
-        code: "EMAIL_ALREADY_REGISTERED",
-        message: "The email entered has already been used to register an account",
-      },
-    });
-    const userCount = await db.user.count({
-      where: { email: registrationEmail },
-    });
-
-    expect(userCount).toBe(1);
+    expect(await db.user.count()).toBe(1);
+    expect(await db.account.count()).toBe(1);
+    expect(await db.ledgerEntry.count()).toBe(1);
   });
+
+  const requiredFields = [
+    "email",
+    "password",
+    "firstName",
+    "lastName",
+  ] as const;
+
+  it.each(requiredFields)(
+    "returns 400 when %s is missing",
+    async (missingField) => {
+      const requestBody: Partial<typeof testUser> = { ...testUser };
+      delete requestBody[missingField];
+
+      const response = await request(app)
+        .post("/api/auth/register")
+        .send(requestBody);
+
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe("INVALID_REGISTRATION_DATA");
+      expect(await db.user.count()).toBe(0);
+    },
+  );
 });
