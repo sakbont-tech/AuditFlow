@@ -4,14 +4,18 @@ import bcrypt from "bcrypt";
 import { z } from "zod";
 import { Prisma } from "../../generated/prisma/client.js";
 import crypto from "crypto";
+import { SignJWT } from "jose";
+import { env } from "../../config/env.js";
 
 const authRouter = Router();
 
 type DriverAdapterErrorMeta = {
   cause?: {
-    constraint?: string | {
-      index?: string;
-    };
+    constraint?:
+      | string
+      | {
+          index?: string;
+        };
   };
 };
 
@@ -28,8 +32,9 @@ function matchesUniqueConstraint(
     return true;
   }
 
-  const adapterError = error.meta
-    ?.driverAdapterError as DriverAdapterErrorMeta | undefined;
+  const adapterError = error.meta?.driverAdapterError as
+    | DriverAdapterErrorMeta
+    | undefined;
   const constraint = adapterError?.cause?.constraint;
 
   return (
@@ -55,6 +60,27 @@ const registerSchema = z.object({
   firstName: z.string().trim().min(1),
   lastName: z.string().trim().min(1),
 });
+
+const loginSchema = z.object({
+  email: z.string().trim().toLowerCase().pipe(z.email()),
+  password: z
+    .string()
+    .min(8)
+    .refine((password) => Buffer.byteLength(password, "utf8") <= 72, {
+      message: "Password must be at most 72 UTF-8 bytes",
+    }),
+});
+
+const encodedJwtSecret = new TextEncoder().encode(env.jwtSecret);
+
+async function createAccessToken(userId: string): Promise<string> {
+  return new SignJWT({})
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(userId)
+    .setIssuedAt()
+    .setExpirationTime("1h")
+    .sign(encodedJwtSecret);
+}
 
 authRouter.post("/register", async (req: Request, res: Response) => {
   const result = registerSchema.safeParse(req.body);
@@ -152,6 +178,57 @@ authRouter.post("/register", async (req: Request, res: Response) => {
       }
       throw error;
     }
+  }
+});
+
+authRouter.post("/login", async (req: Request, res: Response) => {
+  const result = loginSchema.safeParse(req.body);
+  if (!result.success) {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_LOGIN_FORMAT",
+        message: "Login schema validation failed",
+      },
+    });
+  }
+
+  try {
+    const user = await db.user.findUnique({
+      where: { email: result.data.email },
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        error: {
+          code: "INVALID_LOGIN_DATA",
+          message: "incorrect login credentials",
+        },
+      });
+    }
+
+    const isMatch = await bcrypt.compare(
+      result.data.password,
+      user.passwordHash,
+    );
+    if (isMatch) {
+      return res.status(200).json({
+        accessToken: await createAccessToken(user.id),
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+        },
+      });
+    }
+    return res.status(401).json({
+      error: {
+        code: "INVALID_LOGIN_DATA",
+        message: "incorrect login credentials",
+      },
+    });
+  } catch (error) {
+    throw error;
   }
 });
 
