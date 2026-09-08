@@ -3,10 +3,18 @@ import { afterAll, beforeEach, describe, it, expect } from "vitest";
 import app from "../src/app.js";
 import { db } from "../src/db/prismaDB.js";
 import bcrypt from "bcrypt";
+import { jwtVerify } from "jose";
 
 afterAll(async () => {
   await db.$disconnect();
 });
+
+const testUser = {
+  email: "1234@gmail.com",
+  password: "1234bobthebuilder",
+  firstName: "Bob",
+  lastName: "Builder",
+};
 
 describe("GET /api/health", () => {
   it("returns successful health response", async () => {
@@ -18,13 +26,6 @@ describe("GET /api/health", () => {
 });
 
 describe("POST /api/auth/register", () => {
-  const testUser = {
-    email: "1234@gmail.com",
-    password: "1234bobthebuilder",
-    firstName: "Bob",
-    lastName: "Builder",
-  };
-
   beforeEach(async () => {
     await db.ledgerEntry.deleteMany();
     await db.transfer.deleteMany();
@@ -151,4 +152,84 @@ describe("POST /api/auth/register", () => {
       expect(await db.user.count()).toBe(0);
     },
   );
+});
+
+describe("POST /api/auth/login", () => {
+  beforeEach(async () => {
+    await db.ledgerEntry.deleteMany();
+    await db.transfer.deleteMany();
+    await db.account.deleteMany();
+    await db.user.deleteMany();
+  });
+
+  it("returns 200 status if user logs in successfully", async () => {
+    const registerResponse = await request(app)
+      .post("/api/auth/register")
+      .send(testUser);
+    expect(registerResponse.status).toBe(201);
+
+    const loginResponse = await request(app)
+      .post("/api/auth/login")
+      .send({ email: testUser.email, password: testUser.password });
+    expect(loginResponse.status).toBe(200);
+
+    expect(loginResponse.body).toEqual({
+      accessToken: expect.any(String),
+      user: {
+        id: expect.any(String),
+        email: testUser.email,
+        firstName: testUser.firstName,
+        lastName: testUser.lastName,
+      },
+    });
+    await expect(
+      jwtVerify(
+        loginResponse.body.accessToken,
+        new TextEncoder().encode(process.env.JWT_SECRET ?? "test-secret"),
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it("returns a 401 error if user is not in the database", async () => {
+    const loginResponse = await request(app)
+      .post("/api/auth/login")
+      .send(testUser);
+    expect(loginResponse.status).toBe(401);
+    expect(loginResponse.body.error.code).toBe("INVALID_LOGIN_DATA");
+  });
+
+  it("returns a 401 error if the password is incorrect", async () => {
+    const registerResponse = await request(app)
+      .post("/api/auth/register")
+      .send(testUser);
+    expect(registerResponse.status).toBe(201);
+
+    const loginResponse = await request(app).post("/api/auth/login").send({
+      email: testUser.email,
+      password: "wrong-password",
+    });
+
+    expect(loginResponse.status).toBe(401);
+    expect(loginResponse.body).toEqual({
+      error: {
+        code: "INVALID_LOGIN_DATA",
+        message: "incorrect login credentials",
+      },
+    });
+  });
+
+  it("returns a 400 error if the login schema is invalid", async () => {
+    const loginResponse = await request(app).post("/api/auth/login").send({
+      email: "not-an-email",
+      password: "short",
+    });
+
+    expect(loginResponse.status).toBe(400);
+    expect(loginResponse.body).toEqual({
+      error: {
+        code: "INVALID_LOGIN_FORMAT",
+        message: "Login schema validation failed",
+      },
+    });
+  });
 });
