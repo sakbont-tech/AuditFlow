@@ -96,7 +96,6 @@ authRouter.post("/register", async (req: Request, res: Response) => {
   let attempts = 0;
   const maxAttempts = 3;
   const passwordHash = await hashPassword(result.data.password);
-
   while (attempts < maxAttempts) {
     try {
       const accountNumber = crypto
@@ -107,26 +106,27 @@ authRouter.post("/register", async (req: Request, res: Response) => {
         const createdUser = await tx.user.create({
           data: {
             email: result.data.email,
-            passwordHash: passwordHash,
+            passwordHash,
             firstName: result.data.firstName,
             lastName: result.data.lastName,
           },
         });
 
-        const account = await tx.account.create({
+        const createdAccount = await tx.account.create({
           data: {
-            accountNumber: accountNumber,
+            accountNumber,
             ownerId: createdUser.id,
           },
         });
 
         await tx.ledgerEntry.create({
           data: {
-            accountId: account.id,
-            amountCents: account.balanceCents,
+            accountId: createdAccount.id,
+            amountCents: createdAccount.balanceCents,
           },
         });
-        return [createdUser, account];
+
+        return [createdUser, createdAccount];
       });
 
       return res.status(201).json({
@@ -161,6 +161,7 @@ authRouter.post("/register", async (req: Request, res: Response) => {
             },
           });
         }
+
         if (
           matchesUniqueConstraint(
             error,
@@ -173,9 +174,11 @@ authRouter.post("/register", async (req: Request, res: Response) => {
           if (attempts >= maxAttempts) {
             throw error;
           }
+
           continue;
         }
       }
+
       throw error;
     }
   }
@@ -183,6 +186,7 @@ authRouter.post("/register", async (req: Request, res: Response) => {
 
 authRouter.post("/login", async (req: Request, res: Response) => {
   const result = loginSchema.safeParse(req.body);
+
   if (!result.success) {
     return res.status(400).json({
       error: {
@@ -210,24 +214,26 @@ authRouter.post("/login", async (req: Request, res: Response) => {
       result.data.password,
       user.passwordHash,
     );
-    if (isMatch) {
-      return res.status(200).json({
-        accessToken: await createAccessToken(user.id),
-        user: {
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
+
+    if (!isMatch) {
+      return res.status(401).json({
+        error: {
+          code: "INVALID_LOGIN_DATA",
+          message: "incorrect login credentials",
         },
       });
     }
-    return res.status(401).json({
-      error: {
-        code: "INVALID_LOGIN_DATA",
-        message: "incorrect login credentials",
+
+    return res.status(200).json({
+      accessToken: await createAccessToken(user.id),
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
       },
     });
-  } catch (error) {
+  } catch (error: unknown) {
     throw error;
   }
 });

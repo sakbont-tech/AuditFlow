@@ -229,4 +229,27 @@ describe("POST /api/auth/login", () => {
       },
     });
   });
+
+  const requiredFields = [
+    "email",
+    "password",
+    "firstName",
+    "lastName",
+  ] as const;
+
+  it.each(requiredFields)(
+    "returns 400 when %s is missing",
+    async (missingField) => {
+      const requestBody: Partial<typeof testUser> = { ...testUser };
+      delete requestBody[missingField];
+
+      const response = await request(app)
+        .post("/api/auth/register")
+        .send(requestBody);
+
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe("INVALID_REGISTRATION_DATA");
+      expect(await db.user.count()).toBe(0);
+    },
+  );
 });

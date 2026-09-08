@@ -9,7 +9,7 @@ const errorHandler = (
   res.status(500).json({
     error: {
       code: "INTERNAL_SERVER_ERROR",
-      message: err,
+      message: "An unexpected error occurred",
     },
   });
 };
