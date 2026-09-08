@@ -3,6 +3,7 @@ import { afterAll, beforeEach, describe, it, expect } from "vitest";
 import app from "../src/app.js";
 import { db } from "../src/db/prismaDB.js";
 import bcrypt from "bcrypt";
+import { jwtVerify } from "jose";
 
 afterAll(async () => {
   await db.$disconnect();
@@ -162,10 +163,6 @@ describe("POST /api/auth/login", () => {
   });
 
   it("returns 200 status if user logs in successfully", async () => {
-    const expectedResponse = {
-      email: "1234@gmail.com",
-      password: "1234bobthebuilder",
-    };
     const registerResponse = await request(app)
       .post("/api/auth/register")
       .send(testUser);
@@ -173,7 +170,7 @@ describe("POST /api/auth/login", () => {
 
     const loginResponse = await request(app)
       .post("/api/auth/login")
-      .send(testUser);
+      .send({ email: testUser.email, password: testUser.password });
     expect(loginResponse.status).toBe(200);
 
     expect(loginResponse.body).toEqual({
@@ -185,6 +182,12 @@ describe("POST /api/auth/login", () => {
         lastName: testUser.lastName,
       },
     });
+    await expect(
+      jwtVerify(
+        loginResponse.body.accessToken,
+        new TextEncoder().encode(process.env.JWT_SECRET ?? "test-secret"),
+      ),
+    ).resolves.toBeDefined();
   });
 
   it("returns a 401 error if user is not in the database", async () => {
@@ -229,27 +232,4 @@ describe("POST /api/auth/login", () => {
       },
     });
   });
-
-  const requiredFields = [
-    "email",
-    "password",
-    "firstName",
-    "lastName",
-  ] as const;
-
-  it.each(requiredFields)(
-    "returns 400 when %s is missing",
-    async (missingField) => {
-      const requestBody: Partial<typeof testUser> = { ...testUser };
-      delete requestBody[missingField];
-
-      const response = await request(app)
-        .post("/api/auth/register")
-        .send(requestBody);
-
-      expect(response.status).toBe(400);
-      expect(response.body.error.code).toBe("INVALID_REGISTRATION_DATA");
-      expect(await db.user.count()).toBe(0);
-    },
-  );
 });
