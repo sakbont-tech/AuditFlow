@@ -233,3 +233,84 @@ describe("POST /api/auth/login", () => {
     });
   });
 });
+
+describe("GET /api/accounts", () => {
+  beforeEach(async () => {
+    await db.ledgerEntry.deleteMany();
+    await db.transfer.deleteMany();
+    await db.account.deleteMany();
+    await db.user.deleteMany();
+  });
+
+  it("returns 200 status for a valid token", async () => {
+    const registerResponse = await request(app)
+      .post("/api/auth/register")
+      .send(testUser);
+    expect(registerResponse.status).toBe(201);
+
+    const loginResponse = await request(app)
+      .post("/api/auth/login")
+      .send({ email: testUser.email, password: testUser.password });
+    expect(loginResponse.status).toBe(200);
+    const accessToken = loginResponse.body.accessToken;
+
+    const accountsResponse = await request(app)
+      .get("/api/accounts")
+      .set("Authorization", `Bearer ${accessToken}`);
+    expect(accountsResponse.status).toBe(200);
+    expect(accountsResponse.body).toEqual({
+      accounts: [
+        {
+          id: expect.any(String),
+          accountNumber: expect.any(String),
+          balanceCents: 50000,
+          createdAt: expect.any(String),
+        },
+      ],
+    });
+  });
+
+  it("returns 200 status for a valid token with a lowercase bearer scheme", async () => {
+    const registerResponse = await request(app)
+      .post("/api/auth/register")
+      .send(testUser);
+    expect(registerResponse.status).toBe(201);
+
+    const loginResponse = await request(app)
+      .post("/api/auth/login")
+      .send({ email: testUser.email, password: testUser.password });
+    expect(loginResponse.status).toBe(200);
+    const accessToken = loginResponse.body.accessToken;
+
+    const accountsResponse = await request(app)
+      .get("/api/accounts")
+      .set("Authorization", `bearer ${accessToken}`);
+
+    expect(accountsResponse.status).toBe(200);
+  });
+
+  it("returns a 401 status if access token is missing", async () => {
+    const accountsResponse = await request(app).get("/api/accounts");
+    expect(accountsResponse.status).toBe(401);
+    expect(accountsResponse.body).toEqual({
+      error: {
+        code: "AUTHENTICATION_REQUIRED",
+        message: "A valid access token is required",
+      },
+    });
+  });
+
+  it("returns a 401 status if access token is invalid", async () => {
+    const incorrectToken = "asdkalsfaishra";
+    const accountsResponse = await request(app)
+      .get("/api/accounts")
+      .set("Authorization", `Bearer ${incorrectToken}`);
+    expect(accountsResponse.status).toBe(401);
+    expect(accountsResponse.body).toEqual({
+      error: {
+        code: "AUTHENTICATION_REQUIRED",
+        message: "A valid access token is required",
+      },
+    });
+  });
+});
