@@ -10,8 +10,12 @@ const authenticate = async (
   next: NextFunction,
 ) => {
   const authorizationHeader = req.get("authorization");
+  const authorizationScheme = authorizationHeader?.slice(0, "Bearer ".length);
 
-  if (!authorizationHeader || !authorizationHeader.startsWith("Bearer ")) {
+  if (
+    !authorizationHeader ||
+    authorizationScheme?.toLowerCase() !== "bearer "
+  ) {
     return res.status(401).json({
       error: {
         code: "AUTHENTICATION_REQUIRED",
