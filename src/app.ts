@@ -4,6 +4,7 @@ import errorHandler from "./middleware/error-handler.js";
 import notFoundHandler from "./middleware/not-found.js";
 import healthRouter from "./modules/health/health.routes.js";
 import authRouter from "./modules/auth/auth.routes.js";
+import authenticate from "./middleware/authenticate.js";
 
 const app: Express = express();
 
