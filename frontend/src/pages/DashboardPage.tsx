@@ -68,7 +68,7 @@ function DashboardPage() {
       )}
 
       <h1>AuditFlow</h1>
-      <button onClick={handleLogout}>Logout</button>
+      <button className="logout-button" onClick={handleLogout}>Logout</button>
 
       {status === "Success" && (
         <>
