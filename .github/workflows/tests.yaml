@@ -65,5 +65,5 @@ jobs:
         run: npm ci
         working-directory: ./frontend
       - name: Run React tests
-        run: npm run test
+        run: npm run test:run
         working-directory: ./frontend
