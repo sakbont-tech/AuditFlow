@@ -51,6 +51,7 @@ jobs:
 
       - name: Run tests
         run: npm run test
+        working-directory: ./src
 
   frontend-tests:
     runs-on: ubuntu-latest
