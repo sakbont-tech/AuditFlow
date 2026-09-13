@@ -6,7 +6,7 @@ interface AccountCardProps {
 
 function AccountCard({ account }: AccountCardProps) {
   return (
-    <section>
+    <section className="account-card">
       <p>Account Number: {account.accountNumber}</p>
       <p>Account Balance: {(account.balanceCents / 100).toFixed(2)}</p>
       <p>
