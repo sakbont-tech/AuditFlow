@@ -51,3 +51,18 @@ jobs:
 
       - name: Run tests
         run: npm run test
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Install Node.js dependencies
+        run: npm ci
+        working-directory: ./frontend
+      - name: Run React tests
+        run: npm run test
+        working-directory: ./frontend
